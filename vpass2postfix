@@ -1,0 +1,174 @@
+#!/usr/bin/php5
+
+/*
+* Author: Jorge Giunta
+* Mail: jorge@giunta.com.ar
+* Site: http://www.giunta.com.ar
+* Version: 0.1
+* Description: vpasswd2postfix is a script to convert qmail vpasswd file into postfix account, using postfixadmin as by pass.
+* Writing on base source code of: 
+* File: create-mailbox.php
+* Responsible for allowing for the creation of mail boxes
+* @version $Id: create-mailbox.php 612 2009-04-06 19:54:11Z GingerDog $
+* @license GNU GPL v2 or later.
+* Install: Put it on the same folder as is install postfixadmin, and run ./vpasswd2postfix vpasswd_file. 
+*/
+
+<?php
+
+if($argc < 2) {
+	echo "Use $argv[0] vpasswd_file\n\n";
+} else {
+
+require_once('functions.inc.php');
+require_once('config.inc.php');
+
+$handle = @fopen($argv[1], "r");
+if ($handle) {
+    while (!feof($handle)) {
+	$buffer = fgets($handle, 4096);
+	$tmp = explode(":",$buffer);
+	$username = trim($tmp[0]);
+	$mailbox = trim($tmp[0]);
+	$password = trim($tmp[1]);
+	$name_tmp = explode(" ",$tmp[4]);
+	$name = trim("$name_tmp[0].$name_tmp[1]");
+	$quota = trim($tmp[6]);
+	if($quota == "NOQUOTA" or $quota == "0") {
+		$quota = 0;
+	} else {
+		$quota = substr($quota,0,6);
+		$quota = $quota / 1024;
+		$quota = substr($quota,0,3);
+	}
+	$domain = "fcm.uncu.edu.ar";
+	$mail = trim("$username@$domain");
+	$active = "1";
+
+	$fUsername = $username;
+	$fMailbox = $mailbox;
+	$fPassword = $password;
+	$fName = $name;
+	$fMail = $mail;
+	$fQuota = $quota;
+	$fDomain = "fcm.uncu.edu.ar";
+	$fActive = "1";
+
+
+	$pCreate_mailbox_password_text = $PALANG['pCreate_mailbox_password_text'];
+	$pCreate_mailbox_name_text = $PALANG['pCreate_mailbox_name_text'];
+	$pCreate_mailbox_quota_text = $PALANG['pCreate_mailbox_quota_text'];
+
+	if (isset ($fUsername) && isset ($fDomain)) $fUsername = escape_string ($fUsername) . "@" . escape_string ($fDomain);
+	$fUsername = strtolower ($fUsername);
+	isset ($fName) ? $fName = escape_string ($fName) : $fName = "";
+	if (isset ($fDomain)) $fDomain = escape_string ($fDomain);
+	isset ($fQuota) ? $fQuota = intval($fQuota) : $fQuota = 0;
+	if (isset ($fMail)) $fMail = escape_string ($fMail);
+
+	if (!check_mailbox ($fDomain))
+	{
+	$error = 1;
+	$tUsername = escape_string ($fUsername);
+	$tName = $fName;
+	$tQuota = $fQuota;
+	$tDomain = $fDomain;
+	$pCreate_mailbox_username_text = $PALANG['pCreate_mailbox_username_text_error3'];
+	}
+
+	if (empty ($fUsername) or !check_email ($fUsername))
+	{
+	$error = 1;
+	$tUsername = escape_string ($fUsername);
+	$tName = $fName;
+	$tQuota = $fQuota;
+	$tDomain = $fDomain;
+	$pCreate_mailbox_username_text = $PALANG['pCreate_mailbox_username_text_error1'];
+	}
+
+	$result = db_query ("SELECT * FROM $table_alias WHERE address='$fUsername'") or die (mysql_error());
+	if ($result['rows'] == 1)
+	{
+	$error = 1;
+	$tUsername = escape_string ($fUsername);
+	$tName = $fName;
+	$tQuota = $fQuota;
+	$tDomain = $fDomain;
+	$pCreate_mailbox_username_text = $PALANG['pCreate_mailbox_username_text_error2'];
+	}
+
+	if ($error != 1)
+	{
+	if ($CONF['domain_path'] == "YES")
+	{
+	    if ($CONF['domain_in_mailbox'] == "YES")
+	    {
+		$maildir = $fDomain . "/" . $fMailbox . "/";
+	    }
+	    else
+	    {
+		$maildir = $fDomain . "/" . escape_string (strtolower($fMailbox)) . "/";
+	    }
+	}
+	else
+	{
+	    $maildir = $fMailbox . "/";
+	}
+
+	if (!empty ($fQuota))
+	{
+	    $quota = multiply_quota ($fQuota);
+	}
+	else
+	{
+	    $quota = 0;
+	}
+
+	if ('pgsql'==$CONF['database_type'])
+	{
+	    db_query('BEGIN');
+	}
+
+	$result = db_query ("INSERT INTO $table_alias (address,goto,domain,created,modified,active) VALUES ('$fUsername','$fUsername','$fDomain',NOW(),NOW(),'1')") or die (mysql_error());
+	if ($result['rows'] != 1)
+	{
+	    $tDomain = $fDomain;
+	    $tMessage = $PALANG['pAlias_result_error'] . "<br />($fUsername -> $fUsername)</br />";
+	}
+
+	// apparently uppercase usernames really confuse some IMAP clients.
+	$fUsername = strtolower($fUsername);
+	$local_part = '';
+	if(preg_match('/^(.*)@/', $fUsername, $matches)) {
+	    $local_part = $matches[1];
+	}
+
+	$result = db_query ("INSERT INTO $table_mailbox (username,password,name,maildir,local_part,quota,domain,created,modified,active) VALUES ('$fUsername','$fPassword','$fName','$maildir','$local_part','$quota','$fDomain',NOW(),NOW(),'1')") or die (mysql_error());
+	if ($result['rows'] != 1 || !mailbox_postcreation($fUsername,$fDomain,$maildir, $quota))
+	{
+	    $tDomain = $fDomain;
+	    $tMessage .= $PALANG['pCreate_mailbox_result_error'] . "<br />($fUsername)<br />";
+	    db_query('ROLLBACK');
+	}
+	else
+	{
+	    db_query('COMMIT');
+	    db_log ($SESSID_USERNAME, $fDomain, 'create_mailbox', "$fUsername");
+	    $tDomain = $fDomain;
+
+	    $tQuota = $CONF['maxquota'];
+
+	    if (create_mailbox_subfolders($fUsername,$fPassword))
+	    {
+		$tMessage .= $PALANG['pCreate_mailbox_result_success'] . "<br />($fUsername$tShowpass)";
+	    } else {
+		$tMessage .= $PALANG['pCreate_mailbox_result_succes_nosubfolders'] . "<br />($fUsername$tShowpass)";
+	    }
+	mail($fUsername, "Cuenta migrada", "Su cuenta fue migrada a los nuevos servidores satisfactoriamente.");
+	}
+	}
+}   
+fclose($handle);
+}
+}
+?>

@@ -1,0 +1,12 @@
+Author: Jorge Giunta
+Mail: jorge@giunta.com.ar
+Site: http://www.giunta.com.ar
+Version: 0.1
+Description: vpasswd2postfix is a script to convert qmail vpasswd file into postfix account, using postfixadmin as by pass.
+Writing on base source code of:
+File: create-mailbox.php
+Responsible for allowing for the creation of mail boxes
+@version $Id: create-mailbox.php 612 2009-04-06 19:54:11Z GingerDog $
+@license GNU GPL v2 or later.
+Install: Put it on the same folder as is install postfixadmin, and run ./vpasswd2postfix vpasswd_file.
+
